@@ -29,8 +29,11 @@ def _settings():
 
 
 CFG = _settings()
-_csv = CFG.get("csv") or HERE / "sample_data.csv"
-CSV_PATH = Path(os.path.expandvars(os.path.expanduser(str(_csv))))
+DEFAULT_CSV = HERE / "data" / "job_applications.csv"  # used by "Start from scratch" (git ignored)
+COLUMNS = ["Date Applied", "Company", "Position", "Status", "Pay Listed", "Location/Remote", "Source",
+           "Apply Method/ATS", "Confirmation", "URL", "Notes", "Evidence"]
+CSV_CONFIGURED = bool(CFG.get("csv"))
+CSV_PATH = Path(os.path.expandvars(os.path.expanduser(str(CFG.get("csv") or DEFAULT_CSV))))
 if not CSV_PATH.is_absolute():
     CSV_PATH = HERE / CSV_PATH
 DB_PATH = Path(os.path.expandvars(os.path.expanduser(str(CFG.get("db") or HERE / "data" / "tracker.db"))))
@@ -190,9 +193,13 @@ def parse_pay(s):
 @st.cache_data(ttl=60)
 def load_csv(path, mtime):
     df = pd.read_csv(path, dtype=str).fillna("")
+    for c in COLUMNS:  # minimal CSVs work: missing columns are just blank
+        if c not in df.columns:
+            df[c] = ""
     df = df[df["Company"].str.strip() != ""].copy()
+    df["Status"] = df["Status"].where(df["Status"].str.strip() != "", "Applied")
     df["date"] = pd.to_datetime(df["Date Applied"], errors="coerce")
-    df["key"] = df.apply(row_key, axis=1)
+    df["key"] = [row_key(r) for _, r in df.iterrows()]
     return df
 
 
@@ -239,6 +246,94 @@ def plot_base(fig, h=320):
     return fig
 
 
+# ---------- welcome (no CSV yet) ----------
+def _csv_ready():
+    try:
+        return CSV_PATH.read_text(encoding="utf-8-sig").strip() != ""
+    except OSError:
+        return False
+
+
+if not _csv_ready():
+    st.markdown('<div class="mast"><div class="brand"><div class="emblem"></div><h1>Welcome to Job Search <em>Ledger</em></h1></div></div>',
+                unsafe_allow_html=True)
+    st.write("")
+    if CSV_CONFIGURED:
+        st.caption(f"The tracker CSV in your settings is missing or empty: {CSV_PATH}")
+    else:
+        st.caption("No tracker CSV is set up yet. Pick one of these to get going.")
+    w1, w2 = st.columns(2, gap="large")
+    with w1:
+        st.markdown('<div class="sec">Import my spreadsheet</div>', unsafe_allow_html=True)
+        st.markdown("1. In Excel or Google Sheets, save or download your tracker as **CSV**.\n"
+                    "2. Only **Date Applied**, **Company** and **Position** are needed. Other columns are optional, "
+                    "and extra columns are fine.\n"
+                    f"3. Upload it below. It is saved to `{CSV_PATH}`.")
+        up = st.file_uploader("Your tracker CSV", type=["csv"])
+        if up is not None and st.button("Import", type="primary"):
+            try:
+                cols = pd.read_csv(up, dtype=str, nrows=0).columns
+            except Exception as e:  # noqa: BLE001
+                st.error(f"That file could not be read as a CSV: {e}")
+            else:
+                if "Company" not in cols:
+                    st.error("The file needs at least a Company column (plus Date Applied and Position).")
+                else:
+                    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    CSV_PATH.write_bytes(up.getvalue())
+                    st.cache_data.clear(); st.rerun()
+    with w2:
+        st.markdown('<div class="sec">Start from scratch</div>', unsafe_allow_html=True)
+        st.markdown(f"Creates a blank tracker with all the columns the ledger uses at `{CSV_PATH}`. "
+                    "Then add applications from the sidebar as you go.")
+        if st.button("Start from scratch", type="primary"):
+            CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(columns=COLUMNS).to_csv(CSV_PATH, index=False)
+            st.cache_data.clear(); st.rerun()
+        st.caption("Just looking? Set JOB_TRACKER_CSV=sample_data.csv to explore the fake sample data.")
+    st.stop()
+
+
+# ---------- add / edit ----------
+def append_row(values):
+    """Append one application to the tracker CSV, adding any missing standard columns."""
+    cur = pd.read_csv(CSV_PATH, dtype=str, keep_default_na=False)
+    for c in COLUMNS:
+        if c not in cur.columns:
+            cur[c] = ""
+    row = {c: values.get(c, "") for c in cur.columns}
+    pd.concat([cur, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_PATH, index=False)
+    st.cache_data.clear()
+
+
+with st.sidebar:
+    with st.expander("Add application", expanded=False):
+        with st.form("add_app", clear_on_submit=True):
+            company = st.text_input("Company *", key="add_company")
+            position = st.text_input("Position *", key="add_position")
+            applied = st.date_input("Date applied *", value=date.today())
+            url = st.text_input("Job URL")
+            p1, p2 = st.columns(2)
+            pmin = p1.number_input("Pay min ($)", min_value=0, value=None, step=1000)
+            pmax = p2.number_input("Pay max ($)", min_value=0, value=None, step=1000, key="add_pmax")
+            loc = st.text_input("Location / remote")
+            source = st.text_input("Source", placeholder="LinkedIn, Indeed, referral")
+            status = st.selectbox("Status", STATUSES, index=0)
+            notes = st.text_area("Notes")
+            if st.form_submit_button("Add", type="primary", width="stretch"):
+                if not company.strip() or not position.strip():
+                    st.error("Company and Position are required.")
+                else:
+                    pays = [f"${int(x):,}" for x in (pmin, pmax) if x]
+                    append_row({"Date Applied": applied.isoformat(), "Company": company.strip(), "Position": position.strip(),
+                                "Status": status, "Pay Listed": "-".join(pays), "Location/Remote": loc.strip(),
+                                "Source": source.strip(), "URL": url.strip(), "Notes": notes.strip()})
+                    st.session_state["_toast"] = f"Added {company.strip()}"
+                    st.rerun()
+    if st.session_state.get("_toast"):
+        st.toast(st.session_state.pop("_toast"))
+
+
 # ---------- data ----------
 df = load()
 sub = df[~df["Status"].isin(NOT_SUBMITTED)]
@@ -249,10 +344,20 @@ interviews = df[df["Status"].isin(INTERVIEW | {"Offer"})]
 needs = df[df["Status"] == NEEDS]
 resp_rate = (sub["Status"].isin(RESPONDED).sum() / len(sub) * 100) if len(sub) else 0
 
+with st.sidebar:
+    if len(df):
+        with st.expander("Edit status", expanded=False):
+            opts = df.sort_values("date", ascending=False).drop_duplicates("key").set_index("key")
+            pick = st.selectbox("Application", opts.index, format_func=lambda k: " / ".join(
+                x for x in opts.loc[k, ["Company", "Position", "Date Applied"]] if x))
+            r = opts.loc[pick]
+            new = st.selectbox("New status", STATUSES, index=STATUSES.index(r["Status"]) if r["Status"] in STATUSES else 0)
+            if st.button("Save status", width="stretch"):
+                save_edit(pick, new, r["My Notes"], r["Contact"])
+                st.session_state["_toast"] = f"{r['Company']} is now {new}"
+                st.rerun()
+
 # ---------- header ----------
-if not CSV_PATH.exists():
-    st.error(f"Tracker CSV not found: {CSV_PATH}. Set csv in settings.json or JOB_TRACKER_CSV.")
-    st.stop()
 upd = datetime.fromtimestamp(CSV_PATH.stat().st_mtime).strftime("%b %d, %Y %I:%M %p")
 st.markdown(f'<div class="mast"><div class="brand"><div class="emblem"></div><h1>Job Search <em>Ledger</em></h1></div>'
             f'<div class="meta">{APPLICANT}<br>source <b>{CSV_PATH.name}</b><br>synced {upd}</div></div>', unsafe_allow_html=True)
@@ -308,6 +413,7 @@ with tabs[0]:
 
     st.markdown(f'<div class="sec">Listed pay against ${TARGET//1000}K target</div>', unsafe_allow_html=True)
     pay = df.dropna(subset=["pay_lo"]).sort_values("pay_hi").copy()
+    pay["pay_lo"], pay["pay_hi"] = pay["pay_lo"].astype(float), pay["pay_hi"].astype(float)
     pay["label"] = pay["Company"].str.slice(0, 22) + ", " + pay["Position"].str.slice(0, 26)
     hit = pay["pay_hi"] >= TARGET
     colors = [T["pay_hit"] if h else T["pay_miss"] for h in hit]
@@ -322,7 +428,9 @@ with tabs[0]:
     fig.update_yaxes(tickfont=dict(size=10))
     st.plotly_chart(plot_base(fig, max(320, 18 * len(pay))).update_layout(margin=dict(t=34)), width="stretch")
     above = (pay["pay_hi"] >= TARGET).sum()
-    if len(pay):
+    if not len(pay):
+        st.markdown('<div class="note">No listed pay yet. Add a pay range to see roles here.</div>', unsafe_allow_html=True)
+    else:
         st.markdown(f'<div class="note"><b>{len(pay)}</b> roles list pay. <b>{above}</b> reach the target. '
                     f'Median top of range <b>${pay["pay_hi"].median()/1000:.0f}K</b>. Hourly rates annualized at 2,080 hours; '
                     f'hatched bars top out below target.</div>', unsafe_allow_html=True)
