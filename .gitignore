@@ -1,0 +1,15 @@
+# Real personal data never goes in the repo
+*.db
+*.sqlite
+*.sqlite3
+data/
+Job_Applications_Tracker*.csv
+Job_Applications_Tracker*.xlsx
+applied_jobs.md
+reports/
+.venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+screenshots/local_*
+settings.json

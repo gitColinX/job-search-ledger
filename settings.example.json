@@ -1,0 +1,7 @@
+{
+  "csv": "%USERPROFILE%\\OneDrive\\Career\\job_applications.csv",
+  "db": "%LOCALAPPDATA%\\JobSearchLedger\\tracker.db",
+  "target": 90000,
+  "name": "Your Name",
+  "theme": "80s Synth"
+}
