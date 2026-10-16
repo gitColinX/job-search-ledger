@@ -340,7 +340,7 @@ def editor(frame, key):
             "Status": st.column_config.SelectboxColumn(options=STATUSES, required=True),
             "URL": st.column_config.LinkColumn("Link", display_text="Open"),
             "My Notes": st.column_config.TextColumn(width="large"),
-            "Contact": st.column_config.TextColumn(help="Recruiter or contact for the CDLE report"),
+            "Contact": st.column_config.TextColumn(help="Recruiter or contact for the work search log"),
         })
     changed = 0
     for k in edited.index:
@@ -408,8 +408,8 @@ def report_pdf(rep, week_end):
     pdf.set_font("Helvetica", "B", 15)
     pdf.cell(0, 8, "Work Search Activity Log", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 6, ascii_safe(f"Claimant: {APPLICANT}    Week: {start:%m/%d/%Y} to {week_end:%m/%d/%Y} (Sun to Sat)    "
-                              f"Colorado CDLE    Contacts this week: {len(rep)}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, ascii_safe(f"Name: {APPLICANT}    Week: {start:%m/%d/%Y} to {week_end:%m/%d/%Y} (Sun to Sat)    "
+                              f"Contacts this week: {len(rep)}"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
     widths = [22, 52, 62, 50, 58, 22]
     pdf.set_font("Helvetica", "B", 9)
@@ -443,14 +443,14 @@ with tabs[3]:
                         f'<span class="n">{len(g)} apps, {g["Status"].isin(RESPONDED).sum()} resp, '
                         f'<span class="{"ok" if done else "pending"}">{"reported" if done else "not reported"}</span></span></div>',
                         unsafe_allow_html=True)
-            nv = st.checkbox("Reported to unemployment", value=done, key=f"wk{we}")
+            nv = st.checkbox("Reported", value=done, key=f"wk{we}")
             if nv != done:
                 set_week(we, nv); st.rerun()
     with right:
         if weeks:
             sel = st.selectbox("Report week (Sunday to Saturday)", weeks, format_func=lambda d: f"Week ending Sat {d:%b %d, %Y}")
             rep = report_frame(wk.get_group(sel))
-            st.markdown(f'<div class="sec">CDLE work search log, {len(rep)} contacts</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="sec">Work search log, {len(rep)} contacts</div>', unsafe_allow_html=True)
             st.dataframe(rep, width="stretch", hide_index=True, height=min(520, 38 + 35 * len(rep)))
             d1, d2, _ = st.columns([1, 1, 2])
             d1.download_button("Download CSV", rep.to_csv(index=False).encode(), f"work_search_{sel}.csv", "text/csv", width="stretch")

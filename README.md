@@ -1,6 +1,6 @@
 # Job Search Ledger
 
-A friendly, local job search tracker built with Streamlit. Point it at a spreadsheet of your applications and it gives you a pipeline, a daily heat map, pay ranges against your target, a "needs action" list, and a weekly work search log you can download for unemployment filing (built around the Colorado CDLE format).
+A friendly, local job search tracker built with Streamlit. Point it at a spreadsheet of your applications and it gives you a pipeline, a daily heat map, pay ranges against your target, a "needs action" list, and a weekly work search log, export-ready for any job search reporting (state workforce, career coach, or your own records).
 
 Everything stays on your computer. Your CSV is only read, never changed. Your status edits and notes go in a small local database.
 
